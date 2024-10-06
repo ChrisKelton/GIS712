@@ -1,0 +1,25 @@
+# A conda environment for GIS712 Google Earth Engine.
+#
+# Usage:
+#   $ conda env create --file=ee.yml
+#   $ conda activate ee
+
+name: ee
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.9
+  - numpy
+  - pandas
+  - notebook
+  - jupyterlab
+  - nbclean
+  - matplotlib
+  - ipykernel
+
+  # spatial packages
+  - earthengine-api
+  - folium
+
