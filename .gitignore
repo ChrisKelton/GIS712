@@ -1,4 +1,4 @@
 **/*.zip
 **/*.pptx
-**/data
+data
 Lectures/Lecture03/01/example.txt
