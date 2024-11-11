@@ -35,12 +35,13 @@ def load_esri_model() -> ArcGISImageClassifier:
     esri_model_path = Path(__file__).parent.resolve() / "initmodel/esri_v2_label1.pth"
     esri_emd_path = esri_model_path.parent / "esri_v2_label1.emd"
 
-    model = ArcGISImageClassifier()
     kwargs = {
         "model": esri_emd_path,
         "device": 0,
+        "n_target_classes": 6,
     }
-    model.initialize(**kwargs)
+    model = ArcGISImageClassifier(**kwargs)
+    # model.initialize(**kwargs)
 
     state_dict = torch.load(str(esri_model_path))
     model.child_image_classifier.model.load_state_dict(state_dict)

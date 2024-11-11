@@ -5,6 +5,7 @@ try:
     import torch.nn as nn
     import math
     from torch import tensor
+    from torchvision import transforms
     from arcgis.learn.models._inferencing import util
     HAS_TORCH = True
 except Exception:
@@ -210,8 +211,10 @@ def batch_to_tile(batch, batch_height, batch_width):
     return tile
 
 
-class ChildImageClassifier:
-    def initialize(self, model, model_as_file):
+class ChildImageClassifier(nn.Module):
+    # def initialize(self, model, model_as_file):
+    def __init__(self, model, model_as_file):
+        super().__init__()
 
         if not HAS_TORCH:
             raise Exception(
@@ -232,8 +235,9 @@ class ChildImageClassifier:
                 os.path.join(os.path.dirname(model), model_path)
             )
 
-        self.unet = UnetClassifier.from_emd(data=None, emd_path=model)
-        self.model = self.unet.learn.model.to(self.device)
+        # self.unet = UnetClassifier.from_emd(data=None, emd_path=model)
+        unet = UnetClassifier.from_emd(data=None, emd_path=model)
+        self.model = unet.learn.model.to(self.device)
         self.model.eval()
 
     def getParameterInfo(self, required_parameters):
@@ -425,8 +429,6 @@ class ChildImageClassifier:
                 input_image_tensor.device
             )
         else:
-            from torchvision import transforms
-
             normalize = transforms.Normalize(
                 [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
             )
@@ -562,10 +564,12 @@ attribute_table = {
 }
 
 
-class ArcGISImageClassifier:
-    def __init__(self):
+class ArcGISImageClassifier(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
         self.name = 'Image Classifier'
         self.description = 'Image classification python raster function to inference a pytorch image classifier'
+        self.initialize(**kwargs)
 
     def initialize(self, **kwargs):
         if 'model' not in kwargs:
@@ -610,8 +614,27 @@ class ArcGISImageClassifier:
                         "PyTorch is not installed. Install it using conda install -c esri deep-learning-essentials")
                 torch.cuda.set_device(device)
 
-        self.child_image_classifier = ChildImageClassifier()
-        self.child_image_classifier.initialize(model, model_as_file)
+        self.child_image_classifier = ChildImageClassifier(model, model_as_file)
+        self.n_target_classes = kwargs['n_target_classes']
+        self.relu = nn.ReLU()
+        self.proj_to_class_space = nn.Conv2d(
+            self.child_image_classifier.model.layers[-1][-1].out_channels,
+            self.n_target_classes,
+            kernel_size=(1, 1),
+            stride=(1, 1),
+            device=torch.device("cuda") if torch.cuda.is_available() else torch.ddddddevice("cpu"),
+        )
+        # self.child_image_classifier = ChildImageClassifier()
+        # self.child_image_classifier.initialize(model, model_as_file)
+
+        # encoder = self.child_image_classifier.model.layers[:2]
+        # self.encoder = nn.ModuleList([*encoder, self.child_image_classifier.model.layers[3][0]])
+        self.encoder = nn.ModuleList([self.child_image_classifier.model.layers[0]])
+        self.encoder.requires_grad_(False)
+
+        self.encoder_head = nn.ModuleList([*self.child_image_classifier.model.layers[1:3], self.child_image_classifier.model.layers[3][0]])
+
+        self.decoder = nn.ModuleList([self.child_image_classifier.model.layers[3][1], *self.child_image_classifier.model.layers[4:]])
 
     def getParameterInfo(self):
         required_parameters = [
@@ -702,7 +725,7 @@ class ArcGISImageClassifier:
 
         return pixelBlocks
 
-    def __call__(self, x: torch.Tensor, normalize: bool = True):
+    def preprocess_image(self, x: torch.Tensor, normalize: bool = True) -> torch.Tensor:
         if len(x.shape) == 4:
             if x.shape[1] == 13:
                 x = x[:, :12]
@@ -710,19 +733,40 @@ class ArcGISImageClassifier:
             raise RuntimeError(f"Input is not batched: '{x.shape}'")
 
         if normalize:
-            with torch.no_grad():
-                normalization_stats = self.child_image_classifier.json_info['NormalizationStats']
-                band_mean_values = torch.Tensor(normalization_stats['band_mean_values'])
-                band_std_values = torch.Tensor(normalization_stats['band_std_values'])
+            normalization_stats = self.child_image_classifier.json_info['NormalizationStats']
+            normalize_fun = transforms.Normalize(
+                normalization_stats['band_mean_values'], normalization_stats['band_std_values']
+            )
+            x = normalize_fun(x / 255.0)
+        return x
 
-                tmp = torch.zeros_like(x)
-                for idx, x_ in enumerate(x.reshape(12, -1, x.shape[2], x.shape[3])):
-                    tmp_ = (x_ - band_mean_values[idx]) / band_std_values[idx]
-                    tmp[:, idx, ...] = tmp_[:, None, ...].clone()
+    def forward(self, x: torch.Tensor, normalize: bool = True, only_encoding: bool = False):
+        x = self.preprocess_image(x, normalize=normalize)
+        if only_encoding:
+            for layer in self.encoder:
+                x = layer(x)
+            return x
 
-            x = tmp
+        return self.proj_to_class_space(self.relu(self.child_image_classifier.model(x)))
 
-        return self.child_image_classifier.model(x)
+    def pixel_wise_features(self, img: torch.Tensor, normalize: bool = True) -> torch.Tensor:
+        return self(img, normalize=normalize, only_encoding=True)
 
-    def to(self, device: torch.device):
-        self.child_image_classifier.model.to(device)
+    def run_encoder_head(self, pixel_wise_features: torch.Tensor) -> torch.Tensor:
+        for layer in self.encoder_head:
+            pixel_wise_features = layer(pixel_wise_features)
+
+        return pixel_wise_features
+
+    def run_decoder(self, embedded_features: torch.Tensor) -> torch.Tensor:
+        for layer in self.decoder:
+            embedded_features = layer(embedded_features)
+
+        return embedded_features
+
+    # def to(self, device: torch.device):
+    #     self.child_image_classifier.model.to(device)
+    #     self.proj_to_class_space = self.proj_to_class_space.to(device)
+
+    def parameters(self, **kwargs):
+        return self.child_image_classifier.model.parameters()

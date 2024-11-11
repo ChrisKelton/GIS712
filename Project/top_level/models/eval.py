@@ -11,9 +11,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from Project.model_loaders.arcgis_utils import ArcGISImageClassifier
+from Project.model_loaders.models import load_resnet50_hsg_aiml
 from Project.top_level.utils.generate_datasets import Sen12MSDataset
 from Project.top_level.utils.sen12ms_dataLoader import ClcDataPath, Seasons
-from Project.model_loaders.models import load_resnet50_hsg_aiml
+from Project.top_level.utils.torch_model import accuracy_score
 
 
 def generate_confusion_matrix_from_df(
@@ -91,6 +92,138 @@ UniqueValsMap: dict[int, int] = {
 }
 
 
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+
+def test_model(
+    model: nn.Module,
+    dataloader: DataLoader,
+    label_criterion: nn.Module,
+    features_similarity_criterion: nn.Module,
+    n_classes: int,
+    class_names: list[str],
+    out_path: Path,
+    out_path_prefix: Optional[str] = None,
+    overwrite: bool = False,
+) -> dict[str, float]:
+    accumulated_loss_vals: list[float] = []
+    embedded_features_loss_vals: list[float] = []
+    supp_labels_loss_vals: list[float] = []
+    query_label_loss_vals: list[float] = []
+    accuracy_vals: list[float] = []
+    query_accuracy_vals: list[float] = []
+    confusion_mat: np.ndarray = np.zeros((n_classes, n_classes))
+    query_confusion_mat: np.ndarray = np.zeros((n_classes, n_classes))
+    for supp_imgs, supp_labels, query_img, query_label in tqdm(dataloader, desc="Testing over Dataset", position=0, leave=True):
+        supp_imgs = supp_imgs.squeeze().to(device)
+        supp_labels = supp_labels.squeeze().to(device)
+
+        if len(supp_imgs.shape) == 3:
+            supp_imgs = supp_imgs.unsqueeze(0)
+        if len(supp_labels.shape) == 2:
+            supp_labels = supp_labels.unsqueeze(0)
+
+        query_img = query_img.to(device)
+
+        supp_embedded_masked_pixel_wise_features = model(
+            img=supp_imgs,
+            label=supp_labels,
+            mask_pixel_wise_features=True,
+            do_prediction=False,
+        )
+        query_embedded_masked_pixel_wise_features = model(
+            img=query_img,
+            mask_pixel_wise_features=True,
+            do_prediction=False,
+        )
+        embedded_features_loss = features_similarity_criterion(
+            supp_set_features=supp_embedded_masked_pixel_wise_features,
+            query_set_features=query_embedded_masked_pixel_wise_features,
+        )
+
+        supp_pred = model(
+            img=supp_imgs,
+            mask_pixel_wise_features=False,
+            do_prediction=True,
+        )
+        supp_labels_loss = label_criterion(supp_pred, supp_labels.long())
+
+        if query_label is not None:
+            query_label = query_label.squeeze().to(device)
+            if len(query_label.shape) == 2:
+                query_label = query_label.unsqueeze(0)
+            model.eval()
+            query_pred = model(
+                img=query_img,
+                mask_pixel_wise_features=False,
+                do_prediction=True,
+            )
+            query_label_loss = label_criterion(query_pred, query_label.long())
+            query_accuracy = float(accuracy_score(query_label.detach(), torch.argmax(query_pred, dim=1).detach()))
+            query_label_loss_vals.append(float(query_label_loss.detach()))
+            query_accuracy_vals.append(query_accuracy)
+            model.train()
+
+            y_true = torch.ravel(query_label).to(torch.uint8).detach().tolist()
+            y_pred = torch.ravel(torch.argmax(query_pred, dim=1)).to(torch.uint8).detach().tolist()
+
+            indices = np.column_stack([y_true, y_pred])
+            unique_vals, cnts = np.unique(indices, return_counts=True, axis=0)
+            for unique_val, cnt in zip(unique_vals, cnts):
+                query_confusion_mat[model.get_label_from_target_labels_map(unique_val[0]), unique_val[1]] += cnt
+
+        embedded_features_loss_vals.append(float(embedded_features_loss.detach()))
+        supp_labels_loss_vals.append(float(supp_labels_loss.detach()))
+        accumulated_loss_vals.append(embedded_features_loss_vals[-1] + supp_labels_loss_vals[-1])
+
+        accuracy_vals.append(float(accuracy_score(supp_labels.detach(), torch.argmax(supp_pred, dim=1).detach())))
+
+        y_true = torch.ravel(supp_labels).to(torch.uint8).detach().tolist()
+        y_pred = torch.ravel(torch.argmax(supp_pred, dim=1)).to(torch.uint8).detach().tolist()
+
+        indices = np.column_stack([y_true, y_pred])
+        unique_vals, cnts = np.unique(indices, return_counts=True, axis=0)
+        for unique_val, cnt in zip(unique_vals, cnts):
+            confusion_mat[model.get_label_from_target_labels_map(unique_val[0]), unique_val[1]] += cnt
+
+    img_name = "test-support-set-confusion-matrix.png"
+    csv_name = "test-support-set-confusion-matrix.csv"
+    if out_path_prefix is not None:
+        img_name = f"{out_path_prefix}--{img_name}"
+        csv_name = f"{out_path_prefix}--{csv_name}"
+    generate_confusion_matrix_from_array(
+        confusion_mat=confusion_mat,
+        class_names=class_names,
+        img_out_path=out_path / img_name,
+        csv_out_path=out_path / csv_name,
+    )
+
+    if len(query_accuracy_vals) > 0:
+        img_name= "test-query-confusion-matrix.png"
+        csv_name = "test-query-confusion-matrix.png"
+        if out_path_prefix is not None:
+            img_name = f"{out_path_prefix}--{img_name}"
+            csv_name = f"{out_path_prefix}--{csv_name}"
+        generate_confusion_matrix_from_array(
+            confusion_mat=query_confusion_mat,
+            class_names=class_names,
+            img_out_path=out_path / img_name,
+            csv_out_path=out_path / csv_name,
+        )
+
+    results: dict[str, float] = {
+        "accumulated_loss": np.mean(accumulated_loss_vals),
+        "embedded_features_loss": np.mean(embedded_features_loss_vals),
+        "supp_labels_loss": np.mean(supp_labels_loss_vals),
+        "accuracy": np.mean(accuracy_vals),
+        "query_label_loss": np.mean(query_label_loss_vals) if len(query_label_loss_vals) > 0 else 0,
+        "query_accuracy": np.mean(query_accuracy_vals) if len(query_accuracy_vals) > 0 else 0,
+    }
+
+    return results
+
+
+@torch.no_grad()
 def evaluate(
     model: Union[nn.Module, ArcGISImageClassifier],
     dataloader: DataLoader,
@@ -107,8 +240,6 @@ def evaluate(
 
     if esri_model_kwargs is None:
         esri_model_kwargs = {}
-
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
     confusion_mat: np.ndarray = np.zeros((n_classes, n_classes))
     model.to(device)
