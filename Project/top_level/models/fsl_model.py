@@ -4,7 +4,8 @@ from typing import Optional, Callable, Union
 import itertools
 import numpy as np
 from third_party.SEG_GRAD_CAM.gradcam_unet import GradCam
-from Project.top_level.utils.torch_model import freeze_layers
+from Project.top_level.utils.torch_model import freeze_layers, freeze_any_layers, unfreeze_any_layers
+from contextlib import contextmanager
 
 
 Device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -27,11 +28,16 @@ class FslSemSeg(nn.Module):
         out_channels = self.backbone.child_image_classifier.model.layers[-1][0].out_channels
         self.feature_layer = nn.Conv2d(out_channels, out_channels, kernel_size=(1, 1), stride=(1, 1))
 
+        n_params_in_encoder = 108  # len(self.backbone.encoder.parameters())
         if train:
             self.backbone.train()
-            n_params_in_encoder = 108
             n_params_to_not_freeze = len(list(self.backbone.parameters())) - n_params_in_encoder
             self.backbone = freeze_layers(self.backbone, n_layers_to_not_freeze=n_params_to_not_freeze)
+        self.n_params_in_encoder = n_params_in_encoder
+        n_params_in_encoder_head = 2  # len(self.backbone.encoder_head.parameters())
+        self.encoder_head_params_idx = list(
+            np.arange(self.n_params_in_encoder, self.n_params_in_encoder + n_params_in_encoder_head)
+        )
 
         if device is None:
             device = Device
@@ -95,6 +101,18 @@ class FslSemSeg(nn.Module):
         self.target_labels_map: dict[tuple[int, ...], int] = target_labels_map.copy()
         self.mask_features_th = mask_features_th
 
+    def _freeze_encoder_head(self):
+        freeze_any_layers(self.backbone, self.encoder_head_params_idx)
+
+    def _unfreeze_encoder_head(self):
+        unfreeze_any_layers(self.backbone, self.encoder_head_params_idx)
+
+    @contextmanager
+    def freeze_encoder_head(self):
+        self._freeze_encoder_head()
+        yield
+        self._unfreeze_encoder_head()
+
     def get_label_from_target_labels_map(self, key: int) -> int:
         for key_set, val in self.target_labels_map.items():
             if key in key_set:
@@ -103,46 +121,21 @@ class FslSemSeg(nn.Module):
         raise IndexError(f"'{key}' not in 'self.target_labels_map'")
 
     def pseudo_label_generator(self, x: torch.Tensor) -> torch.Tensor:
-        if x.shape[0] > 1:
-            raise NotImplementedError(f"Batch > 1. Not Implemented.")
-        # with GradCAM(
-        #     self.backbone,
-        #     target_layer=self.backbone.child_image_classifier.model.layers[-1],
-        #     input_shape=x.shape[1:],
-        # ) as cam_extractor:
-        #     out = self.backbone(x, normalize=True)
-        #     activation_map = cam_extractor(out.squeeze(0).argmax().item(), out)
-        #
-        # return activation_map
-
-        # grad_cam = GradCam(
-        #     model=self.backbone,
-        #     feature_module=self.backbone.child_image_classifier.model.layers[-2].layers[1][0],
-        #     # target_layer_names=[self.backbone.child_image_classifier.model.layers[-2].name],
-        #     target_layer_names=[self.backbone.child_image_classifier.model.layers[-2].layers[1][0]],
-        #     use_cuda=True if self.device == torch.device("cuda") else False,
-        # )
         grad_cam = GradCam(
             model=self.backbone.child_image_classifier.model,
-            # feature_module=self.backbone.child_image_classifier.model.layers[-2],
-            # feature_module=self.backbone.child_image_classifier.model.layers[-1],
             feature_module=nn.ModuleList([self.feature_layer.to(self.device)]),
-            # target_layer_names=[self.backbone.child_image_classifier.model.layers[-2].name],
-            # target_layer_names=[self.backbone.child_image_classifier.model.layers[-1][0]],
             target_layer_names=["0"],
             use_cuda=True if self.device == torch.device("cuda") else False,
         )
         target_index = None
         mask = grad_cam(self.backbone.preprocess_image(x), target_index, activations_per_class=True)
-        mask = torch.where(torch.isnan(torch.Tensor(mask)), 0.0, torch.Tensor(mask)).unsqueeze(0)
-        mask = torch.argmax(mask, dim=1).unsqueeze(0).to(torch.float32).to(self.device)
-
-        # mask_out = torch.zeros(x.shape[0], len(self.target_labels_map), x.shape[2:])
-        # for key_set, target_label in self.target_labels_map.items():
-        #     for key in key_set:
-        #         mask_out[target_label] += torch.Tensor(mask[key])
-        #     mask_out[target_label] /= len(key_set)
-        # mask_out = torch.where(mask_out >= 0.5, 1.0, 0.0)
+        mask = torch.where(torch.isnan(torch.Tensor(mask)), 0.0, torch.Tensor(mask))
+        if len(mask.shape) == 3:
+            mask = mask.unsqueeze(1)
+        mask = torch.argmax(mask, dim=1)
+        if len(mask.shape) == 3:
+            mask = mask.unsqueeze(1)
+        mask = mask.to(torch.float32).to(self.device)
 
         return mask
 

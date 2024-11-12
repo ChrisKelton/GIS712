@@ -1,4 +1,11 @@
-__all__ = ["print_number_of_params", "get_n_params", "freeze_layers", "accuracy_score"]
+__all__ = [
+    "print_number_of_params",
+    "get_n_params",
+    "freeze_layers",
+    "freeze_any_layers",
+    "unfreeze_any_layers",
+    "accuracy_score",
+]
 import numpy as np
 import torch
 import torch.nn as nn
@@ -20,6 +27,22 @@ def freeze_layers(model: nn.Module, n_layers_to_not_freeze: int = 0) -> nn.Modul
         if idx == params_to_freeze:
             break
         param.requires_grad = False
+
+    return model
+
+
+def freeze_any_layers(model: nn.Module, layers_to_freeze: list[int]) -> nn.Module:
+    for idx, param in enumerate(model.parameters()):
+        if idx in layers_to_freeze:
+            param.requires_grad = False
+
+    return model
+
+
+def unfreeze_any_layers(model: nn.Module, layers_to_unfreeze: list[int]) -> nn.Module:
+    for idx, param in enumerate(model.parameters()):
+        if idx in layers_to_unfreeze:
+            param.requires_grad = True
 
     return model
 

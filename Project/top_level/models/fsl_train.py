@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Any
 
 import jsonpickle
 import numpy as np
@@ -61,22 +62,31 @@ def fsl_train_one_epoch(
 
     Overall Training:
         Notes:
+            - freeze backbone entirely
             - backbone is the same between support_img(s) & query_img
             - encoder is the same between support_img(s) & query_img
             - `x` indicates multiplication
 
-        support_img(s) ---> backbone ---> pixel-wise features ---> x ---> masked pixel-wise features ---> encoder ---> embedded masked pixel-wise features
-                                                                   ^
+        support_img(s) ---> backbone ---> pixel-wise features ---> x ---> masked pixel-wise features ---> encoder ---> embedded masked pixel-wise features ---/---> loss
+                                                                   ^                                                                                       backpropagation
         support_label(s) ------------------------------------------|
 
 
-        query_img --------> backbone ---> pixel-wise features ---> x ---> masked pixel-wise features ---> encoder ---> embedded masked pixel-wise features
-            |                                                      ^
+        query_img --------> backbone ---> pixel-wise features ---> x ---> masked pixel-wise features ---> encoder ---> embedded masked pixel-wise features ---/---> loss
+            |                                                      ^                                                                                       backpropagation
             ------> pseudo-label generation -----------------------|
+
+        (freeze encoder head)
+        support_img(s) ---> model ---/---> loss
+                                    ^  backpropagation
+        support_label(s) -----------|
+        (unfreeze encoder head)
 
     Overall Testing:
 
-        test_img ---> backbone ---> pixel-wise features ---> encoder ---> embedded pixel-wise features ---> knn ---> prediction
+        # test_img ---> backbone ---> pixel-wise features ---> encoder ---> embedded pixel-wise features ---> knn ---> prediction
+        
+        test_img ---> model ---> prediction
     """
     accumulated_loss_vals: list[float] = []
     embedded_features_loss_vals: list[float] = []
@@ -92,8 +102,13 @@ def fsl_train_one_epoch(
         supp_imgs = supp_imgs.squeeze().to(device)
         supp_labels = supp_labels.squeeze().to(device)
 
+        if len(supp_imgs.shape) == 5:
+            supp_imgs = supp_imgs[0].squeeze(0)
         if len(supp_imgs.shape) == 3:
             supp_imgs = supp_imgs.unsqueeze(0)
+
+        if len(supp_labels.shape) == 4:
+            supp_labels = supp_labels[0].squeeze(0)
         if len(supp_labels.shape) == 2:
             supp_labels = supp_labels.unsqueeze(0)
 
@@ -119,15 +134,16 @@ def fsl_train_one_epoch(
         embedded_features_loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        
-        supp_pred = model(
-            img=supp_imgs,
-            mask_pixel_wise_features=False,
-            do_prediction=True,
-        )
-        supp_labels_loss = label_criterion(supp_pred, supp_labels.long())
-        supp_labels_loss.backward()
-        optimizer.step()
+
+        with model.freeze_encoder_head():
+            supp_pred = model(
+                img=supp_imgs,
+                mask_pixel_wise_features=False,
+                do_prediction=True,
+            )
+            supp_labels_loss = label_criterion(supp_pred, supp_labels.long())
+            supp_labels_loss.backward()
+            optimizer.step()
 
         if query_label is not None:
             query_label = query_label.squeeze().to(device)
@@ -529,17 +545,8 @@ def main():
     test_img = torch.zeros((1, 13, 256, 256)).to(device)
     validate_first_results: bool = True
     target_labels = [0, 1, 2, 3, 4, 5]
-    # target_labels_map = {
-    #     0: 5,
-    #     1: 0,
-    #     2: 1,
-    #     3: 2,
-    #     4: 3,
-    #     5: 4,
-    #     6: 5,
-    #     255: 5,
-    # }
     target_labels_map = {
+        0: 5,  # no data (only occurs during the class-activation map pseudo label generator for query images)
         1: 0,  # artificial surfaces
         2: 1,  # agricultural areas
         3: 2,  # forest and semi natural areas
@@ -547,27 +554,57 @@ def main():
         5: 4,  # water bodies
         6: 5,  # no data
     }
-    label_criterion = nn.CrossEntropyLoss()
-    data_size: int = 500
     model_name = "esri-model"
 
+    label_criterion = nn.CrossEntropyLoss()
     features_similarity_criterion = FeaturesSimilarityCriterion()
 
     learning_rate = 1e-3
     weight_decay = 3e-4
 
     # ks: list[int] = [1, 3, 5]
-    ks: list[int] = [3, 5]
+    ks: list[int] = [5, 3, 1]
 
-    epochs: int = 10
+    use_mp: bool = False
+    epochs: int = 100
     epochs_to_test_val: int = 1
-    batch_size: int = 1
+    batch_size: int = 16
+    data_size: int = 1000
     seed: int = 42
-    n_workers: int = 0
+    if use_mp:
+        n_workers: int = int(min(batch_size, len(os.sched_getaffinity(0)) // 4))
+    else:
+        n_workers: int = 0
     pin_memory: bool = True if torch.cuda.is_available() and n_workers > 1 else False
 
-    super_base_out_path = ClcDataPath / "FSL-Training"
+    main_config: dict[str, Any] = {
+        "main": {
+            "epochs": epochs,
+            "epochs_to_test_val": epochs_to_test_val,
+            "batch_size": batch_size,
+            "data_size": data_size,
+            "seed": seed,
+            "n_workers": n_workers,
+            "pin_memory": pin_memory,
+        },
+        "optimizer": {
+            "name": "AdamW",
+            "params": {
+                "learning_rate": learning_rate,
+                "weight_decay": weight_decay,
+            },
+        },
+        "loss": {
+            "labels": "CrossEntropy",
+            "features": "CosineSimilarity",
+        },
+        "n_target_classes": n_target_classes,
+    }
+
+    super_base_out_path = ClcDataPath / f"FSL-Training--batch_size-{batch_size}"
     super_base_out_path.mkdir(exist_ok=True, parents=True)
+
+    (super_base_out_path / "config.json").write_text(jsonpickle.dumps(main_config))
 
     for k in ks:
         print(f"Running {k}-Shot Learning")

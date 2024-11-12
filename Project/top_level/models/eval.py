@@ -118,8 +118,13 @@ def test_model(
         supp_imgs = supp_imgs.squeeze().to(device)
         supp_labels = supp_labels.squeeze().to(device)
 
+        if len(supp_imgs.shape) == 5:
+            supp_imgs = supp_imgs[0].squeeze(0)
         if len(supp_imgs.shape) == 3:
             supp_imgs = supp_imgs.unsqueeze(0)
+
+        if len(supp_labels.shape) == 4:
+            supp_labels = supp_labels[0].squeeze(0)
         if len(supp_labels.shape) == 2:
             supp_labels = supp_labels.unsqueeze(0)
 
