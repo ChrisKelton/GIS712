@@ -151,16 +151,12 @@ class FslSemSeg(nn.Module):
             pixel_wise_features = self.backbone.pixel_wise_features(img, normalize=True)
 
             if label is None:
-                # with torch.no_grad():
-                # don't want to accumulate gradient during this, so figure out how to either turn it off or zero out the gradients
-                # couldn't run with `torch.no_grad()` b/c the CAM activation function registers forward hooks that need the gradient for some reason
                 if pseudo_label_generator is None:
                     pseudo_label_generator = self.pseudo_label_generator
                 label = pseudo_label_generator(img)
 
             if len(label.shape) == 3:
                 label = label.unsqueeze(1)
-            # mask_features = torch.zeros((pixel_wise_features.shape[0], self.n_target_classes, *pixel_wise_features.shape[1:])).to(img.device)
             embedded_masked_features = torch.zeros((pixel_wise_features.shape[0], self.n_target_classes, *self.embedded_features_shape)).to(img.device)
             for classes_in_label, target_label in self.target_labels_map.items():
                 label_by_class = torch.zeros_like(label)
@@ -170,20 +166,11 @@ class FslSemSeg(nn.Module):
                 with torch.no_grad():
                     masked_features = self.backbone.pixel_wise_features(labels_by_class, normalize=False)
                     masked_features = torch.where(masked_features >= self.mask_features_th, 1.0, 0.0)
-                    # mask_features[:, target_label] = self.backbone.pixel_wise_features(labels_by_class, normalize=False)
-                    # mask_features[:, target_label] = torch.where(mask_features[:, target_label] >= self.mask_features_th, 1.0, 0.0)
 
                 masked_features = torch.multiply(pixel_wise_features.clone(), masked_features)
 
                 embedded_masked_features[:, target_label] = self.backbone.run_encoder_head(masked_features)
-                # mask_features[:, target_label] = torch.multiply(pixel_wise_features.clone(), mask_features[:, target_label])
-                #
-                # mask_features[:, target_label] = self.backbone.run_encoder_head(mask_features[:, target_label])
 
             return embedded_masked_features
         else:
             return self.backbone(img, normalize=True, only_encoding=False)
-        #     embedded_pixel_wise_features = self.encoder(pixel_wise_features)
-        #
-        # prediction = self.classifier_head(embedded_pixel_wise_features)
-        # return prediction, embedded_pixel_wise_features

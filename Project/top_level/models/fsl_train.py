@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Callable, Optional, Union, Any
+import shutil
 
 import jsonpickle
 import numpy as np
@@ -9,6 +10,8 @@ import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import torch.nn.functional as F
+import random
 
 from Project.model_loaders.load_esri_model import load_esri_model
 from Project.top_level.models.eval import test_model, generate_confusion_matrix_from_array
@@ -236,8 +239,11 @@ def fsl_train(
 ]:
     if base_out_path.exists():
         files = [file for file in sorted(base_out_path.glob("*")) if file.is_file()]
-        if len(files) > 0 and not overwrite_outputs:
-            raise RuntimeError(f"Files exist at '{base_out_path}' and 'overwrite_outputs' not set.")
+        if len(files) > 0:
+            if not overwrite_outputs:
+                raise RuntimeError(f"Files exist at '{base_out_path}' and 'overwrite_outputs' not set.")
+        else:
+            shutil.rmtree(str(base_out_path))
     base_out_path.mkdir(exist_ok=True, parents=True)
 
     model.train()
@@ -319,15 +325,11 @@ def fsl_train(
         train_results["query_label_loss"].append(results["query_label_loss"])
         train_results["query_accuracy"].append(results["query_accuracy"])
         
-        if epoch == 0:
-            best_model = True
-        elif train_results["accuracy"][-1] > train_results["accuracy"][-2]:
+        if train_results["accuracy"][-1] > best_train_result.get("accuracy", 0.0):
             best_model = True
 
         if train_results["query_label_loss"] != 0:
-            if epoch == 0:
-                best_query_model = True
-            elif train_results["query_accuracy"][-1] > train_results["query_accuracy"][-2]:
+            if train_results["query_accuracy"][-1] > best_query_train_result.get("query_accuracy", 0.0):
                 best_query_model = True
             
         if best_model:
@@ -371,16 +373,12 @@ def fsl_train(
             model.train()
             
             best_val_model: bool = False
-            if epoch == 0:
-                best_val_model = True
-            elif val_results["accuracy"][-1] > val_results["accuracy"][-2]:
+            if val_results["accuracy"][-1] > best_val_result.get("accuracy", 0.0):
                 best_val_model = True
 
             best_query_val_model: bool = False
             if val_results["query_label_loss"] != 0:
-                if epoch == 0:
-                    best_query_val_model = True
-                elif val_results["query_accuracy"][-1] > val_results["query_accuracy"][-2]:
+                if val_results["query_accuracy"][-1] > best_query_val_result.get("query_accuracy", 0.0):
                     best_query_val_model = True
             
             if best_val_model:
@@ -540,10 +538,61 @@ class FeaturesSimilarityCriterion(nn.Module):
         return torch.sum(torch.mean(losses, dim=1))
 
 
+class DiceLoss(nn.Module):
+    def __init__(self, n_target_classes: int):
+        super().__init__()
+        self.n_target_classes = n_target_classes
+
+    def forward(self, prediction: torch.Tensor, target: torch.Tensor, do_softmax: bool = True) -> torch.Tensor:
+        batch_size = prediction.shape[0]
+        if target.shape[1] != self.n_target_classes:
+            if target.shape[1] == 1:
+                target = target.squeeze(1)
+            if len(target.shape) != 3:
+                raise RuntimeError(
+                    f"target shape must be (B, H, W) to do one-hot encoding. Got target.shape: '{target.shape}'"
+                )
+            # do one-hot encoding
+            target_shape = target.shape
+            target = F.one_hot(
+                target,
+                num_classes=self.n_target_classes
+            ).reshape(target.shape[0], self.n_target_classes, *target_shape[1:])
+        if do_softmax:
+            prediction = F.softmax(prediction)
+        prediction = prediction.view(batch_size, -1)
+        target = target.view(batch_size, -1)
+
+        intersection = (prediction * target).sum(1)
+        union = prediction.sum(1) + target.sum(1)
+        dice = (2. * intersection) / (union + 1e-8)
+
+        return dice.sum()
+
+
+def set_random_seed(seed: int = 42, rank: int = 0, deterministic: bool = False):
+    torch.manual_seed(seed + rank)
+    np.random.seed(seed + rank)
+    random.seed(seed + rank)
+    # GPU operations have a separate seed we also want to set
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed + rank)
+        torch.cuda.manual_seed_all(seed + rank)
+
+        # Additionally, some operations on a GPU are implemented stochastically for efficiency.
+        # We want to ensure that all operations are deterministic on GPU (if used)
+        torch.backends.cudnn.deterministic = deterministic
+        torch.backends.cudnn.benchmark = True
+
+
 def main():
     n_target_classes = 6
     test_img = torch.zeros((1, 13, 256, 256)).to(device)
+
     validate_first_results: bool = True
+    overwrite_output: bool = True
+    use_mp: bool = True
+
     target_labels = [0, 1, 2, 3, 4, 5]
     target_labels_map = {
         0: 5,  # no data (only occurs during the class-activation map pseudo label generator for query images)
@@ -556,7 +605,11 @@ def main():
     }
     model_name = "esri-model"
 
-    label_criterion = nn.CrossEntropyLoss()
+    label_criterion_name = "Dice"
+    if label_criterion_name == "CrossEntropy":
+        label_criterion = nn.CrossEntropyLoss()
+    elif label_criterion_name == "Dice":
+        label_criterion = DiceLoss(n_target_classes=n_target_classes)
     features_similarity_criterion = FeaturesSimilarityCriterion()
 
     learning_rate = 1e-3
@@ -565,17 +618,19 @@ def main():
     # ks: list[int] = [1, 3, 5]
     ks: list[int] = [5, 3, 1]
 
-    use_mp: bool = False
     epochs: int = 100
     epochs_to_test_val: int = 1
     batch_size: int = 16
     data_size: int = 1000
-    seed: int = 42
+    seed: int = 3407
     if use_mp:
         n_workers: int = int(min(batch_size, len(os.sched_getaffinity(0)) // 4))
     else:
         n_workers: int = 0
+    print(f"Running with '{n_workers}' workers.")
     pin_memory: bool = True if torch.cuda.is_available() and n_workers > 1 else False
+
+    set_random_seed(seed=seed, deterministic=False)
 
     main_config: dict[str, Any] = {
         "main": {
@@ -595,7 +650,7 @@ def main():
             },
         },
         "loss": {
-            "labels": "CrossEntropy",
+            "labels": label_criterion_name,
             "features": "CosineSimilarity",
         },
         "n_target_classes": n_target_classes,
@@ -604,7 +659,7 @@ def main():
     super_base_out_path = ClcDataPath / f"FSL-Training--batch_size-{batch_size}"
     super_base_out_path.mkdir(exist_ok=True, parents=True)
 
-    (super_base_out_path / "config.json").write_text(jsonpickle.dumps(main_config))
+    (super_base_out_path / "config.json").write_text(jsonpickle.dumps(main_config, indent=2))
 
     for k in ks:
         print(f"Running {k}-Shot Learning")
@@ -614,7 +669,6 @@ def main():
 
         base_out_path = super_base_out_path / f"{k}-shot--{model_name}"
         seasons: list[str] = [Seasons.SPRING.value, Seasons.FALL.value]
-        # seasons: list[str] = [Seasons.FALL.value]
         for season in seasons:
             backbone = load_esri_model()
             model = FslSemSeg(
@@ -686,22 +740,23 @@ def main():
                 epochs_to_test_val=epochs_to_test_val,
                 validate_first=validate_first_results,
                 n_classes=n_target_classes,
+                overwrite_outputs=overwrite_output,
             )
 
             best_train_json_path = season_out_base_path / "best-train-result.json"
-            best_train_json_path.write_text(jsonpickle.dumps(best_train_result))
+            best_train_json_path.write_text(jsonpickle.dumps(best_train_result, indent=2))
 
             best_query_train_json_path = season_out_base_path / "best-query-train-result.json"
-            best_query_train_json_path.write_text(jsonpickle.dumps(best_query_train_result))
+            best_query_train_json_path.write_text(jsonpickle.dumps(best_query_train_result, indent=2))
 
             best_val_json_path = season_out_base_path / "best-val-result.json"
-            best_val_json_path.write_text(jsonpickle.dumps(best_val_result))
+            best_val_json_path.write_text(jsonpickle.dumps(best_val_result, indent=2))
 
             best_query_val_json_path = season_out_base_path / "best-query-val-result.json"
-            best_query_val_json_path.write_text(jsonpickle.dumps(best_query_val_result))
+            best_query_val_json_path.write_text(jsonpickle.dumps(best_query_val_result, indent=2))
 
             validate_first_results_json_path = season_out_base_path / "validate-first-results.json"
-            validate_first_results_json_path.write_text(jsonpickle.dumps(validate_first_results))
+            validate_first_results_json_path.write_text(jsonpickle.dumps(validate_first_results, indent=2))
 
 
 if __name__ == '__main__':
