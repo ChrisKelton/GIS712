@@ -511,31 +511,60 @@ def fsl_train(
     )
 
 
+def masked_logsumexp(arr: torch.Tensor) -> torch.Tensor:
+    sum_: torch.Tensor = torch.zeros((arr.size(0), arr.size(1))).to(arr.device)
+    for i in range(arr.size(0)):
+        for j in range(arr.size(1)):
+            sum_[i, j] = torch.log(torch.sum(torch.exp(arr[i, j])))
+
+    return sum_
+
+
 class FeaturesSimilarityCriterion(nn.Module):
-    def __init__(self, margin: float = 0.3):
+    def __init__(self, margin: float = 0.3, temperature: float = 0.07, softness: float = 0.2):
         super().__init__()
         self.embedding_loss = nn.CosineEmbeddingLoss(margin=margin)
+        self.temperature = temperature
+        # if softness < temperature:
+        #     softness = 0.0
+        # self.softness = softness
 
     def forward(self, supp_set_features: torch.Tensor, query_set_features: torch.Tensor) -> torch.Tensor:
         prototypical_features = torch.mean(supp_set_features, dim=0)
         prototypical_features = prototypical_features.reshape(1, prototypical_features.shape[0], -1)
         query_set_features = query_set_features.reshape(query_set_features.shape[0], query_set_features.shape[1], -1)
 
-        targets = np.ones((query_set_features.shape[1], prototypical_features.shape[1])) * -1
-        targets[::6] = 1
-        targets.reshape(query_set_features.shape[1], prototypical_features.shape[1])
-        targets = torch.tensor(targets, device=supp_set_features.device)
-        losses: torch.Tensor = torch.zeros_like(targets).to(targets.device)
-        for query_idx in range(query_set_features.shape[1]):
-            for supp_idx in range(prototypical_features.shape[1]):
-                target = targets[query_idx, supp_idx].expand(1, *targets[query_idx, supp_idx].shape)
-                losses[query_idx, supp_idx] = self.embedding_loss(
-                    query_set_features[:, query_idx],
-                    prototypical_features[:, supp_idx],
-                    target,
-                )
+        batch_size = query_set_features.shape[0]
+        n_targets = query_set_features.shape[1]
 
-        return torch.sum(torch.mean(losses, dim=1))
+        cos_sim = F.cosine_similarity(
+            prototypical_features.expand(prototypical_features.shape[1], *prototypical_features.shape[1:])[None, ...],
+            query_set_features[:, None, ...], dim=-1)
+        targets = torch.eye(n_targets).bool().expand(batch_size, n_targets, n_targets).to(cos_sim.device)
+        # cos_sim[eye] = torch.minimum(cos_sim[eye], (eye * self.softness)[eye])
+
+        cos_sim /= self.temperature
+        logsumexp_ = masked_logsumexp(cos_sim)
+        cos_sim_positive_pairs = cos_sim[targets].reshape(batch_size, n_targets)
+        loss = -cos_sim_positive_pairs + logsumexp_
+
+        # targets = np.ones((query_set_features.shape[1], prototypical_features.shape[1])) * -1
+        # targets[::6] = 1
+        # targets.reshape(query_set_features.shape[1], prototypical_features.shape[1])
+        # targets = torch.tensor(targets, device=supp_set_features.device)
+        # losses: torch.Tensor = torch.zeros_like(targets).to(targets.device)
+        # for query_idx in range(query_set_features.shape[1]):
+        #     for supp_idx in range(prototypical_features.shape[1]):
+        #         target = targets[query_idx, supp_idx].expand(1, *targets[query_idx, supp_idx].shape)
+        #         losses[query_idx, supp_idx] = self.embedding_loss(
+        #             query_set_features[:, query_idx],
+        #             prototypical_features[:, supp_idx],
+        #             target,
+        #         )
+        #
+        # return torch.sum(torch.mean(losses, dim=1))
+
+        return loss.mean()
 
 
 class DiceLoss(nn.Module):
@@ -618,9 +647,9 @@ def main():
     # ks: list[int] = [1, 3, 5]
     ks: list[int] = [5, 3, 1]
 
-    epochs: int = 100
+    epochs: int = 50
     epochs_to_test_val: int = 1
-    batch_size: int = 16
+    batch_size: int = 8
     data_size: int = 1000
     seed: int = 3407
     if use_mp:
