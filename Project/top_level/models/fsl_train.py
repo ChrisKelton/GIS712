@@ -7,7 +7,7 @@ import jsonpickle
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim import AdamW
+import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -222,6 +222,7 @@ def fsl_train(
     features_similarity_criterion: nn.Module,
     optimizer: nn.Module,
     base_out_path: Path,
+    lr_scheduler: Optional[nn.Module] = None,
     epochs: int = 10,
     epochs_to_test_val: int = 2,
     validate_first: bool = True,
@@ -324,6 +325,9 @@ def fsl_train(
         train_results["accuracy"].append(results["accuracy"])
         train_results["query_label_loss"].append(results["query_label_loss"])
         train_results["query_accuracy"].append(results["query_accuracy"])
+
+        if lr_scheduler is not None:
+            lr_scheduler.step()
         
         if train_results["accuracy"][-1] > best_train_result.get("accuracy", 0.0):
             best_model = True
@@ -534,37 +538,36 @@ class FeaturesSimilarityCriterion(nn.Module):
         prototypical_features = prototypical_features.reshape(1, prototypical_features.shape[0], -1)
         query_set_features = query_set_features.reshape(query_set_features.shape[0], query_set_features.shape[1], -1)
 
-        batch_size = query_set_features.shape[0]
-        n_targets = query_set_features.shape[1]
-
-        cos_sim = F.cosine_similarity(
-            prototypical_features.expand(prototypical_features.shape[1], *prototypical_features.shape[1:])[None, ...],
-            query_set_features[:, None, ...], dim=-1)
-        targets = torch.eye(n_targets).bool().expand(batch_size, n_targets, n_targets).to(cos_sim.device)
-        # cos_sim[eye] = torch.minimum(cos_sim[eye], (eye * self.softness)[eye])
-
-        cos_sim /= self.temperature
-        logsumexp_ = masked_logsumexp(cos_sim)
-        cos_sim_positive_pairs = cos_sim[targets].reshape(batch_size, n_targets)
-        loss = -cos_sim_positive_pairs + logsumexp_
-
-        # targets = np.ones((query_set_features.shape[1], prototypical_features.shape[1])) * -1
-        # targets[::6] = 1
-        # targets.reshape(query_set_features.shape[1], prototypical_features.shape[1])
-        # targets = torch.tensor(targets, device=supp_set_features.device)
-        # losses: torch.Tensor = torch.zeros_like(targets).to(targets.device)
-        # for query_idx in range(query_set_features.shape[1]):
-        #     for supp_idx in range(prototypical_features.shape[1]):
-        #         target = targets[query_idx, supp_idx].expand(1, *targets[query_idx, supp_idx].shape)
-        #         losses[query_idx, supp_idx] = self.embedding_loss(
-        #             query_set_features[:, query_idx],
-        #             prototypical_features[:, supp_idx],
-        #             target,
-        #         )
+        # batch_size = query_set_features.shape[0]
+        # n_targets = query_set_features.shape[1]
         #
-        # return torch.sum(torch.mean(losses, dim=1))
+        # cos_sim = F.cosine_similarity(
+        #     prototypical_features.expand(prototypical_features.shape[1], *prototypical_features.shape[1:])[None, ...],
+        #     query_set_features[:, None, ...], dim=-1)
+        # targets = torch.eye(n_targets).bool().expand(batch_size, n_targets, n_targets).to(cos_sim.device)
+        #
+        # cos_sim /= self.temperature
+        # logsumexp_ = masked_logsumexp(cos_sim)
+        # cos_sim_positive_pairs = cos_sim[targets].reshape(batch_size, n_targets)
+        # loss = -cos_sim_positive_pairs + logsumexp_
+        #
+        # return loss.mean()
 
-        return loss.mean()
+        targets = np.ones((query_set_features.shape[1], prototypical_features.shape[1])) * -1
+        targets[::6] = 1
+        targets.reshape(query_set_features.shape[1], prototypical_features.shape[1])
+        targets = torch.tensor(targets, device=supp_set_features.device)
+        losses: torch.Tensor = torch.zeros_like(targets).to(targets.device)
+        for query_idx in range(query_set_features.shape[1]):
+            for supp_idx in range(prototypical_features.shape[1]):
+                target = targets[query_idx, supp_idx].expand(1, *targets[query_idx, supp_idx].shape)
+                losses[query_idx, supp_idx] = self.embedding_loss(
+                    query_set_features[:, query_idx],
+                    prototypical_features[:, supp_idx],
+                    target,
+                )
+
+        return torch.sum(torch.mean(losses, dim=1))
 
 
 class DiceLoss(nn.Module):
@@ -641,11 +644,12 @@ def main():
         label_criterion = DiceLoss(n_target_classes=n_target_classes)
     features_similarity_criterion = FeaturesSimilarityCriterion()
 
-    learning_rate = 1e-3
-    weight_decay = 3e-4
+    learning_rate = 5e-4
+    weight_decay = 1e-4
 
     # ks: list[int] = [1, 3, 5]
-    ks: list[int] = [5, 3, 1]
+    # ks: list[int] = [5, 3, 1]
+    ks: list[int] = [5]
 
     epochs: int = 50
     epochs_to_test_val: int = 1
@@ -697,7 +701,11 @@ def main():
             raise RuntimeError(f"'{support_set_csvs_base_path}' does not exist!")
 
         base_out_path = super_base_out_path / f"{k}-shot--{model_name}"
-        seasons: list[str] = [Seasons.SPRING.value, Seasons.FALL.value]
+        if k == 5:
+            # seasons: list[str] = [Seasons.FALL.value]
+            seasons: list[str] = [Seasons.SPRING.value]
+        else:
+            seasons: list[str] = [Seasons.SPRING.value, Seasons.FALL.value]
         for season in seasons:
             backbone = load_esri_model()
             model = FslSemSeg(
@@ -708,8 +716,8 @@ def main():
                 target_labels_map=target_labels_map,
                 train=True,
             )
-            optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-
+            optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=learning_rate / 50)
             season_out_base_path = base_out_path / season
             print(f"Running '{season}'")
             support_set_csv_path = support_set_csvs_base_path / f"{season}--support-set.csv"
@@ -764,6 +772,7 @@ def main():
                 label_criterion=label_criterion,
                 features_similarity_criterion=features_similarity_criterion,
                 optimizer=optimizer,
+                lr_scheduler=lr_scheduler,
                 base_out_path=season_out_base_path,
                 epochs=epochs,
                 epochs_to_test_val=epochs_to_test_val,

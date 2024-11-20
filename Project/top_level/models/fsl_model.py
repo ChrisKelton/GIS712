@@ -128,6 +128,7 @@ class FslSemSeg(nn.Module):
             use_cuda=True if self.device == torch.device("cuda") else False,
         )
         target_index = None
+        # TODO: revert changes in SEG_GRAD_CAM fork and separate CAM output correctly
         mask = grad_cam(self.backbone.preprocess_image(x), target_index, activations_per_class=True)
         mask = torch.where(torch.isnan(torch.Tensor(mask)), 0.0, torch.Tensor(mask))
         if len(mask.shape) == 3:

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Union, Optional
 
@@ -9,12 +10,15 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import jsonpickle
 
 from Project.model_loaders.arcgis_utils import ArcGISImageClassifier
 from Project.model_loaders.models import load_resnet50_hsg_aiml
+from Project.model_loaders.load_esri_model import load_esri_model
 from Project.top_level.utils.generate_datasets import Sen12MSDataset
 from Project.top_level.utils.sen12ms_dataLoader import ClcDataPath, Seasons
 from Project.top_level.utils.torch_model import accuracy_score
+from Project.top_level.models.fsl_model import FslSemSeg
 
 
 def generate_confusion_matrix_from_df(
@@ -229,7 +233,7 @@ def test_model(
 
 
 @torch.no_grad()
-def evaluate(
+def evaluate_backbone(
     model: Union[nn.Module, ArcGISImageClassifier],
     dataloader: DataLoader,
     n_classes: int,
@@ -268,7 +272,47 @@ def evaluate(
     )
 
 
-def main():
+def evaluate_fsl_model(
+    model: FslSemSeg,
+    dataloader: DataLoader,
+    n_classes: int,
+    class_names: list[str],
+    out_path: Path,
+    out_path_prefix: Optional[str] = None,
+) -> dict[str, float]:
+    accuracy_vals: list[float] = []
+    confusion_mat: np.ndarray = np.zeros((n_classes, n_classes))
+    for img, label in tqdm(dataloader, desc="Evaluating FSL Model", position=0, leave=True):
+        img = img.to(device)
+        label = label.to(device)
+
+        pred = model(img=img, mask_pixel_wise_features=False, do_prediction=True)
+        accuracy_vals.append(float(accuracy_score(label.detach(), torch.argmax(pred, dim=1).detach())))
+
+        y_true = torch.ravel(label).to(torch.uint8).detach().tolist()
+        y_pred = torch.ravel(torch.argmax(pred, dim=1)).to(torch.uint8).detach().tolist()
+
+        indices = np.column_stack([y_true, y_pred])
+        unique_vals, cnts = np.unique(indices, return_counts=True, axis=0)
+        for unique_val, cnt in zip(unique_vals, cnts):
+            confusion_mat[model.get_label_from_target_labels_map(unique_val[0]), unique_val[1]] += cnt
+
+    img_name = "evaluate-confusion-matrix.png"
+    csv_name = "evaluate-confusion-matrix.csv"
+    if out_path_prefix is not None:
+        img_name = f"{out_path_prefix}--{img_name}"
+        csv_name = f"{out_path_prefix}--{csv_name}"
+    generate_confusion_matrix_from_array(
+        confusion_mat=confusion_mat,
+        class_names=class_names,
+        img_out_path=out_path / img_name,
+        csv_out_path=out_path / csv_name,
+    )
+
+    return {"accuracy": np.mean(accuracy_vals)}
+
+
+def main_test_backbone():
     ks: list[int] = [1, 3, 5]
     k = ks[0]
 
@@ -328,7 +372,7 @@ def main():
                     num_workers=n_workers,
                     pin_memory=pin_memory,
                 )
-                evaluate(
+                evaluate_backbone(
                     model=model,
                     dataloader=dataloader,
                     n_classes=6,
@@ -337,5 +381,105 @@ def main():
                 )
 
 
+def get_latest_model_path(base_path: Path, path_identifier: str) -> Path:
+    paths = sorted(base_path.glob(path_identifier))
+    epochs = [int(path.stem.split("--")[-1]) for path in paths]
+
+    return paths[epochs.index(max(epochs))]
+
+
+def main_test_fsl():
+    n_target_classes = 6
+    test_img = torch.zeros((1, 13, 256, 256)).to(device)
+
+    use_mp: bool = True
+    class_names: list[str] = ["ArtificialSurfaces", "AgriculturalAreas", "ForestNaturalAreas", "Wetlands", "WaterBodies", "NoData"]
+    target_labels = [0, 1, 2, 3, 4, 5]
+    target_labels_map = {
+        0: 5,  # no data (only occurs during the class-activation map pseudo label generator for query images)
+        1: 0,  # artificial surfaces
+        2: 1,  # agricultural areas
+        3: 2,  # forest and semi natural areas
+        4: 3,  # wetlands
+        5: 4,  # water bodies
+        6: 5,  # no data
+    }
+    model_name = "esri-model"
+
+    ks: list[int] = [5, 3, 1]
+
+    batch_size: int = 8
+    data_size: int = 1000
+    seed: int = 3407
+    if use_mp:
+        n_workers: int = int(min(batch_size, len(os.sched_getaffinity(0)) // 4))
+    else:
+        n_workers: int = 0
+    print(f"Running with '{n_workers}' workers.")
+    pin_memory: bool = True if torch.cuda.is_available() and n_workers > 1 else False
+
+    opposite_season_map: dict[str, str] = {
+        Seasons.FALL.value: Seasons.SPRING.value,
+        Seasons.SPRING.value: Seasons.FALL.value,
+    }
+
+    base_model_state_dicts_path = ClcDataPath / f"FSL-Training--batch_size-{batch_size}"
+    if not base_model_state_dicts_path.exists():
+        raise RuntimeError(f"{base_model_state_dicts_path} does not exist!")
+
+    for k in ks:
+        print(f"Evaluating {k}-Shot Learning")
+        data_csvs_base_path = ClcDataPath / f"support-set--{k}"
+        if not data_csvs_base_path.exists():
+            raise RuntimeError(f"'{data_csvs_base_path}' does not exist!")
+
+        few_shot_models_base_path = base_model_state_dicts_path / f"{k}-shot--{model_name}"
+        for base_season, test_season in opposite_season_map.items():
+            backbone = load_esri_model()
+            model = FslSemSeg(
+                backbone=backbone,
+                n_target_classes=n_target_classes,
+                target_labels=target_labels,
+                test_img=test_img,
+                target_labels_map=target_labels_map,
+                train=False,
+            )
+            base_season_path = few_shot_models_base_path / base_season
+            model_path = get_latest_model_path(base_season_path, "query*.pth")
+            print(f"Using '{model_path}' to evaluate.")
+            state_dict = torch.load(model_path)
+            model.load_state_dict(state_dict)
+
+            out_path = base_season_path / f"test-on-season-{test_season}"
+            out_path.mkdir(exist_ok=True, parents=True)
+
+            test_csv_path = data_csvs_base_path / f"{test_season}--not-support-set--val.csv"
+
+            test_dataset = Sen12MSDataset(
+                data_base_path=ClcDataPath,
+                csv_path=test_csv_path,
+                batch_size=batch_size,
+                data_size=data_size,
+                seed=seed,
+            )
+            test_dataloader = DataLoader(
+                test_dataset,
+                batch_size=test_dataset.batch_size,
+                shuffle=test_dataset.shuffle,
+                num_workers=n_workers,
+                pin_memory=pin_memory,
+            )
+            results = evaluate_fsl_model(
+                model=model,
+                dataloader=test_dataloader,
+                n_classes=n_target_classes,
+                class_names=class_names,
+                out_path=out_path,
+            )
+            print(f"Accuracy: {results['accuracy']*100:.2f}%")
+            (out_path / "results.json").write_text(jsonpickle.dumps(results))
+
+
 if __name__ == '__main__':
-    main()
+    # main_test_backbone()
+    main_test_fsl()
