@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>WaterMapping_Sentinel1.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h2 id="gis-712-environmental-earth-observation-and-remote-sensing">GIS 712-Environmental Earth Observation and Remote Sensing</h2>
+<hr>
+<h3 id="water-mapping-time-series-using-sentinel-1-in-google-earth-engine-gee">Water mapping time-series using Sentinel-1 in Google Earth Engine (GEE)</h3>
+  <figure>
+   <center>
+  <img
+  src="imgs/s1_info.png"
+  width="650"
+  alt="The beautiful MDN logo.">
+  <figcaption>Sentinel 1 mission overview. Credit: ESA</figcaption>
+  </center>
+  </figure>
+<hr>
+<h3 id="objectives">Objectives:</h3>
+<hr>
+<ul>
+<li>Explore Sentinel-1 imagery in GEE</li>
+<li>Use Otsu Thresholding to separate water and land pixels in GEE.</li>
+<li>Calculate inundation area for Lake Raleigh, plot, and export the results</li>
+</ul>
+<p>To sign up for GEE please go to their <a href="https://earthengine.google.com/">website</a>. However, by now you should all have signed up to GEE. Please use <a href="https://code.earthengine.google.com/">this link</a> to start and/or read about the sign-up process <a href="https://developers.google.com/earth-engine/guides/access#individual-signup">here</a>.</p>
+<p>Why GEE ? Check <a href="https://www.youtube.com/watch?v=gKGOeTFHnKY&amp;ab_channel=GoogleEarthGoogleEarthVerified">here</a>.</p>
+<p>For a quick tutorial on how to use GEE please check this <a href="https://www.geospatialecology.com/intro_rs_lab1/">web page</a> put together by Dr. Shaun R Levick.</p>
+<hr>
+<h3 id="background-information">Background information:</h3>
+<hr>
+<h4 id="what-is-synthetic-aperture-radar-sar"><em>What is Synthetic Aperture Radar (SAR)</em>?</h4>
+<ul>
+<li>SAR is an active remote sensing sensor that first transmits microwave signals and then receives back the signals that are returned from the Earth's surface. The microwaves that are received back are called <strong>backscatter</strong>.</li>
+</ul>
+<h4 id="what-are-common-sar-satellites"><em>What are common SAR satellites</em>?</h4>
+<ul>
+<li>Sentinel 1, Envisat, JERS, ALOS, ALOS-2, NISAR, TerraSAR-X, TanDEM-X, etc.</li>
+</ul>
+<h4 id="how-does-sar-work"><em>How does SAR work</em>?</h4>
+<ul>
+<li>SAR satellites enable imagery to be obtained during both day and night-time. SAR sensors are active remote sensing (i.e., SAR sensors carry their own illumination source). In addition, SAR microwave wavelengths can penetrate through clouds, allowing usage under all weather conditions.</li>
+<li>The instruments onboard of the satellites measure the distance between the sensor and the point on Earth's surface where the signal is backscattered. This distance is called <strong>slant range</strong> (see illustration), and it can be projected on the ground, representing the <strong>ground range</strong> distance. The flight direction is also reffered to as <strong>along-track</strong> or <strong>azimuth</strong> direction, and the direction perpendicular to the flight path is the <strong>across-track</strong> or <strong>range direction</strong>. The angle between the direction the antenna is pointing and the nadir is the <strong>look angle</strong>. The angle between the radar beam center and the normal to the local topography is the <strong>incidence angle</strong>.</li>
+</ul>
+  <figure>
+   <center>
+  <img
+  src="imgs/nasa_illustration_basic_sar_look_angle_more.jpg"
+  width="450"
+  alt="The beautiful MDN logo.">
+  <figcaption>A typical side-looking radar pointing perpendicular to the flight direction. Credit: NASA</figcaption>
+  </center>
+  </figure>
+<ul>
+<li>The <strong>look angle</strong> significantly affects the behavior of the backscatter signal, and it has key influence on the incidence angle of the backscattered signal. Depending on the Earth's characteristics of the illuminated terrain, areas of <strong>layover</strong> and <strong>shadow</strong> may occur.</li>
+</ul>
+<h4 id="what-are-the-most-common-radar-bands"><em>What are the most common RADAR bands</em>?</h4>
+  <figure>
+   <center>
+  <img
+  src="imgs/SARticle_microwave_fig-05.jpg"
+  width="350"
+  alt="The beautiful MDN logo.">
+  <figcaption>The electromagnetic spectrum with microwave bands inset. Credit: NASA</figcaption>
+  </center>
+  </figure>
+<ul>
+<li>RADAR bands represent a selection of wavelenghts. The most common SAR bands area X-band, C-band, and L-band, each of these bands has its own penetration characteristics which are affected by different materials and conditions on Earth's surface.</li>
+<li>X band: frequency range from 8–12 GHz (2.4-3.8 cm cm wavelength). High resolution SAR (urban monitoring, ice and snow, little penetration into vegetation cover; fast coherence decay in vegetated areas).</li>
+<li>C band: frequency range from 4–8 GHz (3.8-7.5 cm). Most widely used band for global mapping; change detection; monitoring of areas with low to moderate penetration; higher coherence); ice, ocean maritime navigation.</li>
+<li>L band: frequency range from 1–2 GHz (15-30 cm). Medium resolution SAR, used for geophysical monitoring; biomass and vegetation mapping; high penetration, InSAR.</li>
+</ul>
+<h4 id="what-are-sar-polarization-and-scattering-mechanisms"><em>What are SAR polarization and scattering mechanisms</em>?</h4>
+<ul>
+<li>
+<p>Polarization refers to the orientation of the plane in which the transmitted electromagnetic wave oscillates. The horizontal polarization is indicated by the letter H, and the vertical polarization is indicated by V.</p>
+</li>
+<li>
+<p>The advantage of radar sensors is that signal polarization can be precisely controlled on both transmit and receive.</p>
+</li>
+<li>
+<p>Signals emitted in vertical (V) and received in horizontal (H) polarization would be indicated by a VH. Alternatively, a signal that was emitted in horizontal (H) and received in horizontal (H) would be indicated by HH.</p>
+</li>
+<li>
+<p>The signal strength from these different polarizations carries information about the structure of the imaged surface, based on the following types of scattering: surface roughness, volume, and double bounce.</p>
+<figure>
+</li>
+</ul>
+   <center>
+  <img
+  src="imgs/sar_polarization.PNG"
+  width="450"
+  alt="The beautiful MDN logo.">
+  <figcaption>Different SAR polarization channels. Source: J. R. Jensen. 2000. Remote Sensing of the Environment.  </figcaption>
+  </center>
+  </figure>
+<h4 id="what-is-interferometry-insar"><em>What is Interferometry (InSAR)</em>?</h4>
+<ul>
+<li>InSAR uses the phase information recorded by the sensor to measure the distance from the sensor to the target. When at least two observations of the same target are made, the distance, with additional geometric information from the sensor, can be used to measure changes in land surface topography.</li>
+</ul>
+<p>For general SAR information, please check the following resources:</p>
+<ul>
+<li>NASA's Alaska Satellite Facility <a href="https://asf.alaska.edu/information/sar-information/what-is-sar/">website</a>.</li>
+<li>NASA Earth Open Data about SAR <a href="https://earthdata.nasa.gov/learn/backgrounders/what-is-sar">website</a>.</li>
+<li>NASA SAR <a href="https://ntrs.nasa.gov/api/citations/20190002511/downloads/20190002511.pdf?attachment=true">Handbook</a>.</li>
+</ul>
+<hr>
+<h3 id="general-guidelines">General guidelines:</h3>
+<hr>
+<p>For this exercise we will only need a shapefile of Lake Raleigh, which can be found in the <em>/data</em> subfolder. You can follow this <a href="https://developers.google.com/earth-engine/guides/importing">tutorial</a> on how to add a shapefile to GEE.</p>
+<p>The script for this exercise plots a timeseries of surface water area for Lake Raleigh, and enables the users to hover over the graph to see the area mapped as water at a specific date. Water classification is derived from Sentinel-1 Synthetic Aperture Radar (SAR) using VV polarization and ascending pass.</p>
+<p>The script for this exercise is <a href="https://code.earthengine.google.com/1c1613e1436edf74d6401c9025590675">here</a>.</p>
+<p>Before running the script, you will need to do the following steps:</p>
+<ol>
+<li>Load the Lake Raleigh shapefile to Google Earth Engine.</li>
+<li>Change path of the shapefile based on your library name (e.g., &quot;users/YOUR_PATH/LakeRaleigh&quot; )</li>
+<li>Now, you can run the entire script, or you can simply copy and paste the code snippets below into a new file in GEE, which will allow you to break down the code.</li>
+</ol>
+<p>As a first step, we are going to buffer the shapefile of Lake Raleigh to 20 m and 100 meters. Then, we use the 100 meters buffer to clip the image collection before the water classification—this ensures that we have non-water and water pixels for evey image in the image collection. Later, to make a cleaner plot, we clip the water classification using the 20 meter buffer.</p>
+<p>The VV polarization means that both the signal transnmited from and received by from the satellite is vertically polarized. This is commonly used for water bodies detection.</p>
+<hr>
+<h3 id="understanding-the-script">Understanding the script:</h3>
+<hr>
+<p>Defining general objects that will be used later (e.g., including time series start and end dates).</p>
+<pre class="hljs"><code><div><span class="hljs-comment">// GIS 712: Environmental Earth Observation and Remote Sensing  </span>
+<span class="hljs-comment">// Mapping Surface Water Extent Using Sentinel-1 imagery</span>
+
+<span class="hljs-comment">// Define general objects</span>
+<span class="hljs-keyword">var</span> st_date = <span class="hljs-string">'2018-05-04'</span>; <span class="hljs-comment">// starting date of ts</span>
+<span class="hljs-keyword">var</span> ed_date =<span class="hljs-string">'2020-09-30'</span>; <span class="hljs-comment">// ending date of ts</span>
+<span class="hljs-keyword">var</span> polarization = <span class="hljs-string">'VV'</span>; <span class="hljs-comment">// polarization from Sentinel-1 that will be used</span>
+<span class="hljs-keyword">var</span> pass = <span class="hljs-string">'ASCENDING'</span>; <span class="hljs-comment">// sensor pass orientation; 'ASCENDING' or 'DESCENDING'</span>
+
+<span class="hljs-comment">// Define geometry: Lake Raleigh</span>
+<span class="hljs-keyword">var</span> AOI =  ee.FeatureCollection(<span class="hljs-string">"users/mtulbure/LakeRaleigh"</span>);
+print(AOI);
+<span class="hljs-comment">// Zoom to Lake Raleigh to see the plotted shapefile</span>
+<span class="hljs-built_in">Map</span>.addLayer(AOI)
+</div></code></pre>
+<p>Next we are defining some functions that we will use to <em>map</em> over our <em>image collection</em> (read more about <em>map</em> and <em>image collections</em> <a href="https://developers.google.com/earth-engine/guides/ic_mapping">here</a>).</p>
+<hr>
+<h3 id="functions">Functions:</h3>
+<hr>
+<ol>
+<li><strong>otsu</strong>: to select the optimal threshold between non-water and water pixels. You can read more about the algorithm <a href="https://scikit-image.org/docs/0.13.x/auto_examples/xx_applications/plot_thresholding.html">here</a>.<br>
+Check how this algorithm is being by the scientific community (<a href="https://www.mdpi.com/2072-4292/9/12/1306">Cooley et al. 2017</a>)</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> otsu = <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">histogram</span>) </span>{
+   <span class="hljs-keyword">var</span> counts = ee.Array(ee.Dictionary(histogram).get(<span class="hljs-string">'histogram'</span>));
+   <span class="hljs-keyword">var</span> means = ee.Array(ee.Dictionary(histogram).get(<span class="hljs-string">'bucketMeans'</span>));
+   <span class="hljs-keyword">var</span> size = means.length().get([<span class="hljs-number">0</span>]);
+   <span class="hljs-keyword">var</span> total = counts.reduce(ee.Reducer.sum(), [<span class="hljs-number">0</span>]).get([<span class="hljs-number">0</span>]);
+   <span class="hljs-keyword">var</span> sum = means.multiply(counts).reduce(ee.Reducer.sum(), [<span class="hljs-number">0</span>]).get([<span class="hljs-number">0</span>]);
+   <span class="hljs-keyword">var</span> mean = sum.divide(total);
+   
+   <span class="hljs-keyword">var</span> indices = ee.List.sequence(<span class="hljs-number">1</span>, size);
+   
+   <span class="hljs-comment">// Compute between sum of squares(BSS), where each mean partitions the data.</span>
+   <span class="hljs-keyword">var</span> bss = indices.map(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">i</span>) </span>{
+     <span class="hljs-keyword">var</span> aCounts = counts.slice(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, i);
+     <span class="hljs-keyword">var</span> aCount = aCounts.reduce(ee.Reducer.sum(), [<span class="hljs-number">0</span>]).get([<span class="hljs-number">0</span>]);
+     <span class="hljs-keyword">var</span> aMeans = means.slice(<span class="hljs-number">0</span>, <span class="hljs-number">0</span>, i);
+     <span class="hljs-keyword">var</span> aMean = aMeans.multiply(aCounts)
+         .reduce(ee.Reducer.sum(), [<span class="hljs-number">0</span>]).get([<span class="hljs-number">0</span>])
+         .divide(aCount);
+     <span class="hljs-keyword">var</span> bCount = total.subtract(aCount);
+     <span class="hljs-keyword">var</span> bMean = sum.subtract(aCount.multiply(aMean)).divide(bCount);
+     <span class="hljs-keyword">return</span> aCount.multiply(aMean.subtract(mean).pow(<span class="hljs-number">2</span>)).add(
+           bCount.multiply(bMean.subtract(mean).pow(<span class="hljs-number">2</span>)));
+   });
+   
+   <span class="hljs-comment">// Return the mean value corresponding to the maximum BSS.</span>
+   <span class="hljs-keyword">return</span> means.sort(bss).get([<span class="hljs-number">-1</span>]);
+ };
+
+</div></code></pre>
+<ol start="2">
+<li><strong>filterSpeckles</strong>: to filter speckle noise from SAR imagery using a focal median filter.<br>
+As you know SAR imagery has speckle noise—which is originated from random interference between different returns issued by several scatterers present on earth surface; in general, speckle noise is the grainy salt-and-pepper pattern present in SAR imagery. We will minimize the speckle noise effect using a simple moving window filter by applying the method <em>focal_median()</em> available in GEE. This filter looks at each pixel and its neighboring pixels and takes the median. There are much more sophisticated filters that we can apply, however, we are keeping it simple.</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> filterSpeckles = <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img, polarization</span>) </span>{
+    <span class="hljs-comment">// define polarization</span>
+    <span class="hljs-keyword">var</span> pol = ee.String(polarization);
+    <span class="hljs-comment">//select the VV polarization band</span>
+    <span class="hljs-keyword">var</span> vv = img.select(pol) 
+    <span class="hljs-comment">// Apply a focal median filter</span>
+    <span class="hljs-keyword">var</span> vv_smoothed = vv.focal_median(<span class="hljs-number">4</span>,<span class="hljs-string">'circle'</span>,<span class="hljs-string">'meters'</span>).rename(pol.cat(<span class="hljs-string">'_Filtered'</span>)) 
+    <span class="hljs-keyword">return</span> img.addBands(vv_smoothed) <span class="hljs-comment">// Add filtered VV band to original image</span>
+    }
+
+</div></code></pre>
+<ol start="3">
+<li><strong>maskInside</strong>: function to clip the images to the polygon boundaries (i.e., in our case Lake Raleigh).</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> maskInside = <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">image, geometry</span>) </span>{
+    <span class="hljs-keyword">var</span> mask = ee.Image.constant(<span class="hljs-number">1</span>).clip(geometry).mask();
+    <span class="hljs-keyword">return</span> image.updateMask(mask);
+  };
+</div></code></pre>
+<ol start="4">
+<li><strong>bufferBy</strong>: function to buffer polygons to XX (i.e., meters) distance.</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> bufferBy = <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">size</span>) </span>{
+    <span class="hljs-keyword">return</span> <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">feature</span>) </span>{
+      <span class="hljs-keyword">return</span> feature.buffer(size);   
+      };
+    };
+</div></code></pre>
+<ol start="5">
+<li><strong>classifyWater</strong>: this function does most of the surface water classification. It is a wrapper to run <em>otsu</em>, to remove small patches of pixels, and to add a band called: <em>water</em> to each image of our image collection.</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> classifyWater = <span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img, polarization</span>) </span>{
+  
+  <span class="hljs-comment">// seetings to remvoe small patches of water (&lt;0.2ha)</span>
+  <span class="hljs-keyword">var</span> minArea = <span class="hljs-number">2000</span>;
+  <span class="hljs-keyword">var</span> maxSize = <span class="hljs-number">1024</span>;
+
+  <span class="hljs-comment">// define polarization</span>
+  <span class="hljs-keyword">var</span> pol = ee.String(polarization);
+  
+  <span class="hljs-comment">// create a new name to use when calculating the Otsu Threshold</span>
+  <span class="hljs-keyword">var</span> name_lyr = ee.String(pol.cat(<span class="hljs-string">'_Filtered'</span>));
+  
+  <span class="hljs-comment">// Compute the histogram of the VV_Filtered or VH_Filtered</span>
+  <span class="hljs-keyword">var</span> vv = img.select(name_lyr);
+  
+  <span class="hljs-keyword">var</span> histogram = vv.reduceRegion({
+    <span class="hljs-attr">reducer</span>: ee.Reducer.histogram(<span class="hljs-number">255</span>, <span class="hljs-number">2</span>)
+        .combine(<span class="hljs-string">'mean'</span>, <span class="hljs-literal">null</span>, <span class="hljs-literal">true</span>)
+        .combine(<span class="hljs-string">'variance'</span>, <span class="hljs-literal">null</span>, <span class="hljs-literal">true</span>), 
+    <span class="hljs-attr">geometry</span>: AOI_100, 
+    <span class="hljs-attr">scale</span>: <span class="hljs-number">10</span>,
+    <span class="hljs-attr">bestEffort</span>: <span class="hljs-literal">true</span>});
+
+  <span class="hljs-comment">// Apply threshold</span>
+  <span class="hljs-keyword">var</span> threshold = ee.Number(otsu(histogram.get(name_lyr.cat(<span class="hljs-string">'_histogram'</span>))));
+  <span class="hljs-keyword">var</span> water = vv.lt(threshold).rename(<span class="hljs-string">'Water'</span>);  <span class="hljs-comment">// Identify all pixels below threshold and set them equal to 1. All other pixels set to 0</span>
+  water = water.updateMask(water); <span class="hljs-comment">// Remove all pixels equal to 0</span>
+  
+  <span class="hljs-comment">// apply focal_model filter to remove inside the OFR</span>
+  water = water.focal_mode(<span class="hljs-number">4</span>,<span class="hljs-string">'square'</span>,<span class="hljs-string">'meters'</span>);
+
+  <span class="hljs-comment">// remove small patches</span>
+  <span class="hljs-keyword">var</span> pixelCount = water.connectedPixelCount(maxSize);
+  <span class="hljs-keyword">var</span> minPixelCount = ee.Image(minArea).divide(ee.Image.pixelArea());
+  water = water.updateMask(pixelCount.gte(minPixelCount));
+  
+  <span class="hljs-keyword">return</span> img.addBands(water).set(<span class="hljs-string">'otsu'</span>, threshold);  <span class="hljs-comment">//Return image with added classified water band</span>
+  
+};
+</div></code></pre>
+<ol start="6">
+<li><strong>waterArea</strong>: function to count the number of water pixels from the band <em>water</em>. We are using Sentinel 1 imagery at 10 m spatial resolution.</li>
+</ol>
+<pre class="hljs"><code><div><span class="hljs-keyword">var</span> waterArea = <span class="hljs-function"><span class="hljs-keyword">function</span> (<span class="hljs-params">img</span>) </span>{
+  <span class="hljs-comment">// select water</span>
+  <span class="hljs-keyword">var</span> waterLayer = img.select(<span class="hljs-string">'Water'</span>).rename(<span class="hljs-string">'N_Water_Pixels'</span>);
+  <span class="hljs-comment">// count number of pixels to calculate area</span>
+  <span class="hljs-keyword">var</span> area = waterLayer.reduceRegion({
+    <span class="hljs-attr">reducer</span>: ee.Reducer.sum(), 
+    <span class="hljs-attr">geometry</span>: AOI_100, 
+    <span class="hljs-attr">scale</span>: <span class="hljs-number">10</span>,
+  });
+  <span class="hljs-keyword">return</span> img.set(area);
+};
+</div></code></pre>
+<p>This is the part of the script where we apply all the functions.</p>
+<pre class="hljs"><code><div><span class="hljs-comment">//Buffer Lake Raleigh</span>
+<span class="hljs-keyword">var</span> AOI_20 = AOI.map(bufferBy(<span class="hljs-number">20</span>));
+<span class="hljs-keyword">var</span> AOI_100 = AOI.map(bufferBy(<span class="hljs-number">100</span>));
+
+<span class="hljs-comment">//Load Sentinel-1 SAR collection and filter according to data collection type</span>
+<span class="hljs-keyword">var</span> S1_eeCollection = ee.ImageCollection(<span class="hljs-string">'COPERNICUS/S1_GRD'</span>)
+                        .filterBounds(AOI_100)
+                        .filterDate(st_date, ed_date)
+                        .filter(ee.Filter.listContains(<span class="hljs-string">'transmitterReceiverPolarisation'</span>, polarization))
+                        <span class="hljs-comment">// Filter to get ascending and descending separately</span>
+                        .filter(ee.Filter.eq(<span class="hljs-string">'orbitProperties_pass'</span>, pass))
+                        .filter(ee.Filter.eq(<span class="hljs-string">'resolution_meters'</span>,<span class="hljs-number">10</span>))
+                        <span class="hljs-comment">// Filter to get images collected in interferometric wide swath mode.</span>
+                        .filter(ee.Filter.eq(<span class="hljs-string">'instrumentMode'</span>, <span class="hljs-string">'IW'</span>));
+  
+<span class="hljs-comment">// Map speckle noise filter across collection. Result is same collection, with smoothed VV band added to each image</span>
+S1_eeCollection = S1_eeCollection.map(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img</span>) </span>{<span class="hljs-keyword">return</span> filterSpeckles(img, polarization);});
+
+<span class="hljs-comment">// function to clip ee.Collection </span>
+S1_eeCollection = S1_eeCollection.map(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img</span>) </span>{<span class="hljs-keyword">return</span> maskInside(img, AOI_100);});
+
+<span class="hljs-comment">// Classify Water</span>
+S1_eeCollection = S1_eeCollection.map(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img</span>) </span>{<span class="hljs-keyword">return</span> classifyWater(img, polarization);});
+
+<span class="hljs-comment">// function to clip ee.Collection </span>
+S1_eeCollection = S1_eeCollection.map(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">img</span>) </span>{<span class="hljs-keyword">return</span> maskInside(img, AOI_20);});
+
+<span class="hljs-comment">// Water Area</span>
+S1_eeCollection = S1_eeCollection.map(waterArea);
+
+print(S1_eeCollection);
+<span class="hljs-comment">// Can add it to the map</span>
+<span class="hljs-built_in">Map</span>.addLayer(S1_eeCollection);
+</div></code></pre>
+<p>Make intereactive plots using <strong>ui.Chart.image</strong>. Check <a href="https://developers.google.com/earth-engine/apidocs/ui-chart-image-series">here</a> for more information on how this type of chart can be done in GEE.</p>
+<pre class="hljs"><code><div><span class="hljs-comment">//Make time series of water pixels within region</span>
+<span class="hljs-keyword">var</span> ClassChart = ui.Chart.image.series({
+  <span class="hljs-attr">imageCollection</span>: S1_eeCollection.select(<span class="hljs-string">'Water'</span>),
+  <span class="hljs-comment">//region: LakeRaleigh,</span>
+  <span class="hljs-attr">region</span>: AOI,
+  <span class="hljs-attr">reducer</span>: ee.Reducer.sum(),
+  <span class="hljs-attr">scale</span>: <span class="hljs-number">100</span>, <span class="hljs-comment">// You can change this I used 100 to make it faster</span>
+})
+  .setOptions({
+      <span class="hljs-attr">title</span>: <span class="hljs-string">'Inundated Pixels'</span>,
+      <span class="hljs-attr">hAxis</span>: {<span class="hljs-string">'title'</span>: <span class="hljs-string">'Date'</span>},
+      <span class="hljs-attr">vAxis</span>: {<span class="hljs-string">'title'</span>: <span class="hljs-string">'Number of Inundated Pixels'</span>},
+      <span class="hljs-attr">lineWidth</span>: <span class="hljs-number">2</span>
+    })
+
+<span class="hljs-comment">//Set the postion of the chart and add it to the map    </span>
+ClassChart.style().set({
+    <span class="hljs-attr">position</span>: <span class="hljs-string">'bottom-right'</span>,
+    <span class="hljs-attr">width</span>: <span class="hljs-string">'500px'</span>,
+    <span class="hljs-attr">height</span>: <span class="hljs-string">'300px'</span>
+  });
+  
+<span class="hljs-built_in">Map</span>.add(ClassChart)
+
+<span class="hljs-comment">// Create a label on the map.</span>
+<span class="hljs-keyword">var</span> label = ui.Label(<span class="hljs-string">'Click a point on the chart to show the image for that date.'</span>);
+<span class="hljs-built_in">Map</span>.add(label);
+
+<span class="hljs-comment">//Create callbakc function that adds image to the map coresponding with clicked data point on chart</span>
+ClassChart.onClick(<span class="hljs-function"><span class="hljs-keyword">function</span>(<span class="hljs-params">xValue, yValue, seriesName</span>) </span>{
+    <span class="hljs-keyword">if</span> (!xValue) <span class="hljs-keyword">return</span>;  <span class="hljs-comment">// Selection was cleared.</span>
+  
+    <span class="hljs-comment">// Show the image for the clicked date.</span>
+    <span class="hljs-keyword">var</span> equalDate = ee.Filter.equals(<span class="hljs-string">'system:time_start'</span>, xValue);
+    <span class="hljs-comment">//Find image coresponding with clicked data and clip water classification to roi </span>
+    <span class="hljs-keyword">var</span> classification = ee.Image(S1_eeCollection.filter(equalDate).first()).clip(LakeRaleigh).select(<span class="hljs-string">'Water'</span>); 
+    <span class="hljs-keyword">var</span> SARimage = ee.Image(S1_eeCollection.filter(equalDate).first());
+    <span class="hljs-comment">//Make map layer based on SAR image, reset the map layers, and add this new layer</span>
+    <span class="hljs-keyword">var</span> S1Layer = ui.Map.Layer(SARimage, {
+      <span class="hljs-attr">bands</span>: [<span class="hljs-string">'VV'</span>],
+      <span class="hljs-attr">max</span>: <span class="hljs-number">0</span>,
+      <span class="hljs-attr">min</span>: <span class="hljs-number">-20</span>
+    });
+    <span class="hljs-built_in">Map</span>.layers().reset([S1Layer]);
+    <span class="hljs-keyword">var</span> visParams = {
+      <span class="hljs-attr">min</span>: <span class="hljs-number">0</span>,
+      <span class="hljs-attr">max</span>: <span class="hljs-number">1</span>,
+      <span class="hljs-attr">palette</span>: [<span class="hljs-string">'#FFFFFF'</span>,<span class="hljs-string">'#0000FF'</span>]
+    }
+    <span class="hljs-comment">//Add water classification on top of SAR image</span>
+    <span class="hljs-built_in">Map</span>.addLayer(classification,visParams,<span class="hljs-string">'Water'</span>)
+    
+    <span class="hljs-comment">// Show a label with the date on the map.</span>
+    label.setValue((<span class="hljs-keyword">new</span> <span class="hljs-built_in">Date</span>(xValue)).toUTCString());
+  });
+</div></code></pre>
+</article>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="github-markdown.css">
+<style>
+	.markdown-body {
+		/* box-sizing: border-box; */
+		min-width: 200px;
+		max-width: 980px;
+		margin: 0 auto;
+		padding: 50px;
+	}
+</style>
+</body>
+</html>
