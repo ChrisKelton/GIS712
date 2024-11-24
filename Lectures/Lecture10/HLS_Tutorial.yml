@@ -1,0 +1,30 @@
+# A conda environment for hls_tutorial as part of the GIS712 Fall 2024 course at NCSU.
+#
+# Usage:
+#   $ conda env create --file=hls_tutorial.yml
+#   $ source activate hls_tutorial
+
+name: hls_tutorial
+
+channels:
+  - conda-forge
+dependencies:
+  - python 
+  - pip
+  - numpy
+  - pandas
+  - notebook
+  - glob2
+  - matplotlib
+  - scikit-image
+  - hvplot
+  - earthaccess
+  - dask
+
+  # spatial packages
+  - gdal
+  - rasterio
+  - geopandas
+  - rioxarray
+  - earthpy
+  - geojson
