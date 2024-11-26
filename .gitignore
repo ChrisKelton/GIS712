@@ -1,4 +1,12 @@
 **/*.zip
 **/*.pptx
+**/*.tif*
+**/*.png*
+.idea
+**/*__pycache__*
 data
+clc-data
+Project/model_loaders/initmodel
+Project/third_party/MaskSplit
+Project/top_level/utils/kml*
 Lectures/Lecture03/01/example.txt
